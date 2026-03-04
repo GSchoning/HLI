@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import functools
+import logging
 import numpy as np
 import pandas as pd
 import scipy.linalg
@@ -372,7 +373,8 @@ def solve_rml_worker(seed, dobs, uncertainties, payload_data, sample_mean, sampl
             
             except TargetMisfitReached:
                 raise
-            except Exception:
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Objective evaluation failed: {e}")
                 return 1e20, np.zeros_like(m)
 
         try:
