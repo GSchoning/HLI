@@ -455,8 +455,8 @@ class Survey:
         skipgates = gex_file["Channel1"]["RemoveInitialGates"]
 
         cols = list(gex_file["General"].keys())
-        LMCols = list(filter(lambda k: "GateTimeLM" in k, cols))
-        HMCols = list(filter(lambda k: "GateTimeHM" in k, cols))
+        LMCols = [k for k in cols if "GateTimeLM" in k]
+        HMCols = [k for k in cols if "GateTimeHM" in k]
 
         lm_gate_centers = [gex_file["General"][x][0] for x in LMCols]
         channel_info = gex_file["Channel1"]
