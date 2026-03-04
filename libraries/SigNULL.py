@@ -16,6 +16,9 @@ from simpeg import maps, data, directives, inverse_problem, inversion, optimizat
 import simpeg.electromagnetics.time_domain as tdem
 from simpeg.data_misfit import L2DataMisfit
 
+import logging
+logger = logging.getLogger(__name__)
+
 # --- IMPORT ENSEMBLE SMOOTHER ---
 try:
     from .ES import LMEnsembleSmoother
@@ -40,11 +43,11 @@ def optimize_waveform_bipolar(times, amps, tol=1e-3):
     4. Zero crossings
     """
     keep_mask = np.zeros(len(times), dtype=bool)
-    
+
     # 1. Keep Start and End
     keep_mask[0] = True
     keep_mask[-1] = True
-    
+
     # 2. Keep Local Extrema (Peaks and Valleys)
     # This finds points where the slope changes sign
     diff_sign = np.sign(np.diff(amps))
@@ -52,13 +55,13 @@ def optimize_waveform_bipolar(times, amps, tol=1e-3):
     # Indices where sign change is non-zero are peaks/valleys
     peak_indices = np.where(sign_change != 0)[0] + 1
     keep_mask[peak_indices] = True
-    
+
     # 3. Keep Zero Crossings (Critical for bipolar)
     # Find where amplitude crosses zero
     zero_cross = np.where(np.diff(np.sign(amps)))[0]
     keep_mask[zero_cross] = True
     keep_mask[zero_cross + 1] = True
-    
+
     # 4. Curvature Fill-in (for the ramp-off and corners)
     grads = np.gradient(amps, times)
     curvature = np.gradient(grads)
@@ -127,7 +130,7 @@ def get_cholesky_decomposition(mesh, correlation_factor):
 def solve_rml_worker_SIMPEG(seed, dobs, uncertainties, payload_data, sample_mean, sample_corr, chifact=1.0):
     import numpy as np
     from simpeg import (
-        maps, data, data_misfit, regularization, 
+        maps, data, data_misfit, regularization,
         optimization, inverse_problem, inversion, directives
     )
     import simpeg.electromagnetics.time_domain as tdem
@@ -138,9 +141,9 @@ def solve_rml_worker_SIMPEG(seed, dobs, uncertainties, payload_data, sample_mean
         thicknesses_input = payload_data['thicknesses']
         # Mesh has nC cells (e.g. 60)
         mesh = TensorMesh([np.r_[thicknesses_input, thicknesses_input[-1]]], "0")
-        nC = mesh.nC  
-        sim_thicknesses = mesh.h[0][:-1] 
-        
+        nC = mesh.nC
+        sim_thicknesses = mesh.h[0][:-1]
+
         # --- 2. REBUILD SURVEY ---
         rx_loc = payload_data['rx_loc']
         tx_shape = payload_data['tx_shape']
@@ -151,7 +154,7 @@ def solve_rml_worker_SIMPEG(seed, dobs, uncertainties, payload_data, sample_mean
         src_lm = tdem.sources.LineCurrent([rx_lm], location=tx_shape, waveform=w_lm)
         src_hm = tdem.sources.LineCurrent([rx_hm], location=tx_shape, waveform=w_hm)
         survey = tdem.Survey([src_lm, src_hm])
-        
+
         # --- 3. DATA SETUP ---
         np.random.seed(seed)
         d_pert = dobs + np.random.randn(len(dobs)) * uncertainties
@@ -167,41 +170,41 @@ def solve_rml_worker_SIMPEG(seed, dobs, uncertainties, payload_data, sample_mean
             U, S, _ = np.linalg.svd(C); L_mat = U @ np.diag(np.sqrt(S))
 
         wires = maps.Wires(('z', nC), ('mu', 1))
-        
+
         # Map 1: Structure (nC -> nC)
         map_z = maps.LinearMap(L_mat) * wires.z
-        
+
         # Map 2: Mean (1 -> nC)
         # FIX: We create a matrix P of all ones (shape 60x1)
         # This explicitly multiplies the scalar 'mu' to create a vector [mu, mu, ... mu]
         P = np.ones((nC, 1))
         map_mu = maps.LinearMap(P) * wires.mu
-        
+
         # Combined: Now we are adding (60,) + (60,) -> Safe.
         model_mapping = maps.ExpMap(mesh) * (map_z + map_mu)
 
         # --- 5. INVERSION SETUP ---
         sim = tdem.Simulation1DLayered(survey=survey, thicknesses=sim_thicknesses, sigmaMap=model_mapping)
         dmis = data_misfit.L2DataMisfit(data=data_object, simulation=sim)
-        
+
         reg_mesh = TensorMesh([np.ones(nC + 1)])
         reg = regularization.WeightedLeastSquares(reg_mesh, mapping=maps.IdentityMap(nP=nC + 1),alpha_s=1,alpha_x=0)
-        
+
         m_prior = np.r_[np.zeros(nC), np.array([sample_mean])]
         reg.reference_model = m_prior
-        
+
         # Weights: 1.0 for z, 0.1 for mu
         #reg_weights = np.r_[np.ones(nC), 0.1]
         #reg.set_weights(prior_weights=np.sqrt(reg_weights))
 
         # GNCG Optimization
-        min_log_cond = np.log(1e-4) 
-        max_log_cond = np.log(0.1) 
+        min_log_cond = np.log(1e-4)
+        max_log_cond = np.log(0.1)
         lower_b = np.r_[np.ones(nC) * -2.0, min_log_cond]
         upper_b = np.r_[np.ones(nC) * 2.0,  max_log_cond]
 
         opt = optimization.ProjectedGNCG(
-            maxIter=50, lower=lower_b, upper=upper_b, 
+            maxIter=50, lower=lower_b, upper=upper_b,
             maxIterLS=30, maxIterCG=30, tolCG=1e-5
         )
 
@@ -221,13 +224,13 @@ def solve_rml_worker_SIMPEG(seed, dobs, uncertainties, payload_data, sample_mean
                 m_rec = inv.run(m_prior)
             finally:
                 sys.stdout = old_stdout
-        
+
         sigma_final = model_mapping * m_rec
         dpred = sim.dpred(m_rec)
         phi_d = 0.5 * np.sum(((dpred - d_pert)/uncertainties)**2)
-        
+
         return {
-            'sigma': sigma_final, 'z': m_rec[:-1], 'mu': m_rec[-1], 
+            'sigma': sigma_final, 'z': m_rec[:-1], 'mu': m_rec[-1],
             'phi_d': phi_d, 'corr': sample_corr, 'success': True
         }
 
@@ -236,7 +239,7 @@ def solve_rml_worker_SIMPEG(seed, dobs, uncertainties, payload_data, sample_mean
             'sigma': np.zeros(len(payload_data['thicknesses'])+1) + 1e-8,
             'z': np.zeros(len(payload_data['thicknesses'])+1),
             'mu': sample_mean,
-            'phi_d': 1e9, 
+            'phi_d': 1e9,
             'corr': sample_corr,
             'success': False,
             'error_msg': str(e)
@@ -250,46 +253,46 @@ def solve_rml_worker(seed, dobs, uncertainties, payload_data, sample_mean, sampl
     from simpeg import maps
     import simpeg.electromagnetics.time_domain as tdem
     from discretize import TensorMesh
-    
+
     # --- 1. REBUILD OBJECTS (Milliseconds) ---
     thicknesses = payload_data['thicknesses']
     n_physics = len(thicknesses) + 1
-    
+
     # Rebuild Mesh
     mesh = TensorMesh([np.r_[thicknesses, thicknesses[-1]]], "0")
-    
+
     # Rebuild Receivers
     rx_loc = payload_data['rx_loc']
     rx_lm = tdem.receivers.PointMagneticFluxTimeDerivative(rx_loc, payload_data['lm_times'], "z")
     rx_hm = tdem.receivers.PointMagneticFluxTimeDerivative(rx_loc, payload_data['hm_times'], "z")
-    
+
     # Rebuild Waveforms
     if payload_data['lm_wave_time'] is not None:
         w_lm = tdem.sources.PiecewiseLinearWaveform(payload_data['lm_wave_time'], payload_data['lm_wave_form'])
         w_hm = tdem.sources.PiecewiseLinearWaveform(payload_data['hm_wave_time'], payload_data['hm_wave_form'])
-        
+
         # Rebuild Sources
         tx_shape = payload_data['tx_shape']
-        
+
         src_lm = tdem.sources.LineCurrent([rx_lm], location=tx_shape, waveform=w_lm)
         src_hm = tdem.sources.LineCurrent([rx_hm], location=tx_shape, waveform=w_hm)
     else:
         tx_shape = payload_data['tx_shape']
         src_lm = tdem.sources.LineCurrent([rx_lm], location=tx_shape)
         src_hm = tdem.sources.LineCurrent([rx_hm], location=tx_shape)
-    
+
     survey = tdem.Survey([src_lm, src_hm])
-    
+
     # --- 2. SETUP OPTIMIZATION ---
     np.random.seed(seed)
     d_pert = dobs + np.random.randn(len(dobs)) * uncertainties
     Wd = 1.0 / uncertainties
-    
-    m_ref = np.r_[np.zeros(n_physics), np.array([sample_mean])] 
+
+    m_ref = np.r_[np.zeros(n_physics), np.array([sample_mean])]
 
     min_log_cond = np.log(1e-5)  # approx -11.5
     max_log_cond = np.log(1)  # approx +2.3
-    
+
     # Apply to the vectors
     lower_b = np.r_[np.ones(n_physics) * -10.0, min_log_cond]
     upper_b = np.r_[np.ones(n_physics) * 10.0,  max_log_cond]
@@ -307,29 +310,29 @@ def solve_rml_worker(seed, dobs, uncertainties, payload_data, sample_mean, sampl
     def optimize_structure(current_L_val, m_start):
         L_mat = get_cholesky_decomposition(mesh, current_L_val)
         wires = maps.Wires(('z', n_physics), ('mu', 1))
-        
+
         # Hardcoded std_scaling=1.0 for now, adjust if needed
         model_map = maps.ExpMap(mesh) * (maps.LinearMap(L_mat) * wires.z + maps.SurjectFull(mesh) * wires.mu)
-        
+
         sim = tdem.Simulation1DLayered(survey=survey, thicknesses=thicknesses, sigmaMap=model_map)
         '''
         def objective(m):
             try:
                 # Fields & Forward
                 # Note: 'sim.fields' optimizes repeated calls inside Jtvec
-                f = sim.fields(m) 
+                f = sim.fields(m)
                 d_pred = sim.dpred(m, f=f)
-                
+
                 res = Wd * (d_pred - d_pert)
                 phi_d = 0.5 * np.sum(res**2)
-                
+
                 # Gradient: J.T * (W.T * W * r)
                 grad_d = sim.Jtvec(m, Wd * res, f=f)
-                
+
                 # RML Regularization
                 phi_s = 0.5 * np.sum((m - m_ref)**2)
                 grad_s = (m - m_ref)
-                
+
                 return float(phi_d + 1.0 * phi_s), (grad_d + 1.0 * grad_s).astype(float)
             except:
                 return 1e20, np.zeros_like(m)
@@ -340,22 +343,22 @@ def solve_rml_worker(seed, dobs, uncertainties, payload_data, sample_mean, sampl
         '''
         # 1. Define Early Stopping Exception
         class TargetMisfitReached(Exception): pass
-        target_phi_d = 0.5 * len(d_pert) * chifact 
-        
+        target_phi_d = 0.5 * len(d_pert) * chifact
+
         best_m = m_start.copy()
         best_phi = 1e20
 
         def objective(m):
             nonlocal best_m, best_phi
             try:
-                f = sim.fields(m) 
+                f = sim.fields(m)
                 d_pred = sim.dpred(m, f=f)
-                
+
                 res = Wd * (d_pred - d_pert)
                 phi_d = 0.5 * np.sum(res**2)
-                
+
                 # LOWER THIS WEIGHT to speed up convergence (e.g., 0.0 or 0.01)
-                beta_weight = 0.0 
+                beta_weight = 0.0
                 phi_s = 0.5 * beta_weight * np.sum((m - m_ref)**2)
                 current_obj = float(phi_d + phi_s)
 
@@ -364,15 +367,16 @@ def solve_rml_worker(seed, dobs, uncertainties, payload_data, sample_mean, sampl
                     best_m = m.copy()
                     best_phi = current_obj
                     raise TargetMisfitReached()
-                
+
                 grad_d = sim.Jtvec(m, Wd * res, f=f)
                 grad_s = beta_weight * (m - m_ref)
-                
+
                 return current_obj, (grad_d + grad_s).astype(float)
-            
+
             except TargetMisfitReached:
                 raise
-            except Exception:
+            except Exception as e:
+                logger.error("Error in objective evaluation: %s", e, exc_info=True)
                 return 1e20, np.zeros_like(m)
 
         try:
@@ -385,9 +389,9 @@ def solve_rml_worker(seed, dobs, uncertainties, payload_data, sample_mean, sampl
         return final_m, model_map, final_phi
     # --- 4. EXECUTION ---
     m_init = np.r_[np.random.randn(n_physics)*0.01, np.array([sample_mean])]
-    
+
     m_opt, final_map, final_phi = optimize_structure(sample_corr, m_init)
-    
+
     return {'sigma': final_map * m_opt, 'z': m_opt[:n_physics], 'mu': m_opt[-1], 'phi_d': final_phi, 'corr': sample_corr}
 
 
@@ -398,11 +402,11 @@ class HRML:
     def run_local(self, Sounding, client=None):
         # 1. EXTRACT LIGHTWEIGHT PAYLOAD
         # We grab raw arrays. Pickling arrays is instant.
-        
+
         # Access the first source to grab geometry/waveforms
         src0 = Sounding.srv.source_list[0] # LM
         src1 = Sounding.srv.source_list[1] # HM
-        
+
         # Determine shapes
         # Note: SimPEG 1D usually stores Rx/Tx locs as arrays of shape (N, 3)
         rx_loc = src0.receiver_list[0].locations
@@ -416,14 +420,14 @@ class HRML:
             'tx_shape': tx_shape,
             'lm_times': src0.receiver_list[0].times,
             'hm_times': src1.receiver_list[0].times,
-            
+
             # SAFE EXTRACTION: Check if it's a PiecewiseLinearWaveform with times/currents
             'lm_wave_time': src0.waveform.times if hasattr(src0.waveform, 'times') else None,
-            'lm_wave_form': src0.waveform.currents if hasattr(src0.waveform, 'currents') else None, 
+            'lm_wave_form': src0.waveform.currents if hasattr(src0.waveform, 'currents') else None,
             'hm_wave_time': src1.waveform.times if hasattr(src1.waveform, 'times') else None,
             'hm_wave_form': src1.waveform.currents if hasattr(src1.waveform, 'currents') else None
-        }   
-        
+        }
+
         # 2. CLIENT CHECK
         close_client = False
         if client is None:
@@ -434,7 +438,7 @@ class HRML:
 
         try:
             # 3. SCATTER DATA (Crucial Step!)
-            # Even with delayed objects, we scatter the heavy data first so the 
+            # Even with delayed objects, we scatter the heavy data first so the
             # scheduler knows it's the same data for every task.
             print("Scattering lightweight arrays...")
             dobs_fut = client.scatter(Sounding.dobs, broadcast=True)
@@ -452,7 +456,7 @@ class HRML:
                 # Wrap the worker in dask.delayed
                 # Passing futures (dobs_fut, etc) into delayed works perfectly in Dask
                 task = dask.delayed(solve_rml_worker)(
-                    r, dobs_fut, unc_fut, pay_fut, 
+                    r, dobs_fut, unc_fut, pay_fut,
                     means[r], corrs[r]
                 )
                 lazy_results.append(task)
@@ -460,7 +464,7 @@ class HRML:
             # 5. EXECUTE GRAPH
             print("Computing...")
             results = dask.compute(*lazy_results)
-            
+
             # Post-process expects a list, dask.compute returns a tuple
             self.post_process(Sounding, list(results))
 
@@ -472,13 +476,13 @@ class HRML:
     def post_process(self, Sounding, results):
         self.calreals = [r['sigma'] for r in results]
         self.z_stack = np.array([r['z'] for r in results])
-        
+
         # Reduced Chi2 normalization
         n_data = len(Sounding.dobs)
         self.chivals = [(2 * r['phi_d']) / n_data for r in results]
-        
+
         self.calib_factors = [r['corr'] for r in results]
-        
+
         log_reals = np.log10(np.array(self.calreals) + 1e-12)
         self.p50 = 10**np.nanpercentile(log_reals, 50, axis=0)
         self.p5 = 10**np.nanpercentile(log_reals, 5, axis=0)
@@ -513,7 +517,7 @@ class HRML2:
 
 def run_ies_forward(p_input, physics_payload):
     if isinstance(p_input, dict):
-        corr_len = p_input.get('corr_len', 2.5) 
+        corr_len = p_input.get('corr_len', 2.5)
         log_mean = p_input.get('log_mean', -4.6)
         n_layers = physics_payload['n_layers']
         z_vec = np.zeros(n_layers)
@@ -530,10 +534,11 @@ def run_ies_forward(p_input, physics_payload):
     L = get_cholesky_decomposition(mesh, corr_len)
     log_cond = log_mean + (L @ z_vec)
     simulation = tdem.Simulation1DLayered(survey=survey, thicknesses=thicknesses, sigmaMap=maps.ExpMap(nP=n_layers))
-    
+
     try:
         dpred = simulation.make_synthetic_data(log_cond, add_noise=False).dobs
-    except Exception:
+    except Exception as e:
+        logger.error("Error in run_ies_forward: %s", e, exc_info=True)
         dpred = np.ones(survey.nD) * np.nan
     return dict(zip([f"d_{i:02d}" for i in range(len(dpred))], dpred))
 
@@ -543,7 +548,7 @@ def post_process_batch_worker(p_vecs, param_names, physics_payload, dobs, unc):
     n_layers = physics_payload['n_layers']
     mesh = TensorMesh([(np.r_[thicknesses, thicknesses[-1]])], "0")
     simulation = tdem.Simulation1DLayered(survey=survey, thicknesses=thicknesses, sigmaMap=maps.ExpMap(nP=n_layers))
-    
+
     results = []
     for p_vec in p_vecs:
         corr_len, log_mean, z_vec = p_vec[0], p_vec[1], p_vec[2:]
@@ -556,7 +561,8 @@ def post_process_batch_worker(p_vecs, param_names, physics_payload, dobs, unc):
             residuals = (dobs - dclean) / unc
             chi2 = np.sum(residuals**2) / len(dobs)
             rele = np.mean(np.abs((dobs - dclean) / dobs))
-        except Exception:
+        except Exception as e:
+            logger.error("Error processing batch worker: %s", e, exc_info=True)
             dclean = np.zeros_like(dobs); chi2 = 99999.0; rele = 1.0
         results.append((sigma, dclean, chi2, rele, corr_len))
     return results
@@ -569,10 +575,10 @@ def get_cutoff(isounding, S, V, kmin=0.0001, kmax=10):
     Yemp = np.zeros(np.shape(V)[0])
     kt = []
     for s in range(0, np.shape(V)[1]):
-        Y = Yemp.copy(); Y[s] = 1 
+        Y = Yemp.copy(); Y[s] = 1
         Perrc = []
         for w in range(0, len(S)):
-            S2E = (isounding.uncertainties**2)[w] 
+            S2E = (isounding.uncertainties**2)[w]
             YtV_2 = []
             for i2 in range(w + 1, np.shape(V)[1]):
                 Vi = V[:, i2]; YtV_2.append((Y.T @ Vi) ** 2)
@@ -597,7 +603,7 @@ def cdf_for_value(data, x):
 def get_DOI(isounding, Cali, depths=False):
     try:
         if hasattr(Cali, 'values'): model_vals = Cali.values
-        else: model_vals = Cali 
+        else: model_vals = Cali
         temp_map = maps.ExpMap(nP=isounding.mesh.nC)
         temp_sim = tdem.Simulation1DLayered(survey=isounding.srv, thicknesses=isounding.inv_thickness, sigmaMap=temp_map)
         JW = temp_sim.getJ(m=np.log(model_vals))
@@ -642,27 +648,27 @@ class IES:
         self.use_regularization = False
 
     def run_local(self, Sounding, client=None):
-        obs_df = pd.DataFrame({"value": Sounding.dobs, "std": Sounding.uncertainties}, 
+        obs_df = pd.DataFrame({"value": Sounding.dobs, "std": Sounding.uncertainties},
                               index=[f"d_{i:02d}" for i in range(len(Sounding.dobs))])
-        
+
         param_list = [{"name": "corr_len", "prior_mean": 2, "prior_std": 2.0, "pmin": 1.0, "pmax": 30.0},
                       {"name": "log_mean", "prior_mean": np.log(0.01), "prior_std": 1.0, "pmin": np.log(1e-4), "pmax": np.log(0.1)}]
         for i in range(Sounding.mesh.nC):
             param_list.append({"name": f"z_{i:02d}", "prior_mean": 0.0, "prior_std": 1.0, "pmin": -5, "pmax": 5})
         param_df = pd.DataFrame(param_list).set_index("name")
-        
+
         # --- FIX: Store param_names in the IES class instance ---
         self.param_names = param_df.index.tolist()
         # --------------------------------------------------------
 
         self.physics_payload = {'survey': Sounding.srv, 'thicknesses': Sounding.inv_thickness, 'n_layers': Sounding.mesh.nC}
         model_func = functools.partial(run_ies_forward, physics_payload=self.physics_payload)
-        
-        self.smoother = LMEnsembleSmoother(model_func=model_func, param_df=param_df, obs_df=obs_df, 
+
+        self.smoother = LMEnsembleSmoother(model_func=model_func, param_df=param_df, obs_df=obs_df,
                                            num_ensemble=self.nreals, client=client, transform_parameters=True)
         self.smoother.initialize_priors(phys_bounds=param_df[['pmin', 'pmax']])
         self.smoother.solve(max_iterations=self.max_iter, initial_lambda=self.initial_lambda, enforce_bounds=param_df[['pmin', 'pmax']])
-        
+
         self.post_process(Sounding)
 
     def post_process(self, Sounding, client=None):
@@ -670,17 +676,17 @@ class IES:
         P_real = self.smoother.inverse_transform(self.smoother.P)
         if hasattr(P_real, "values"): P_real = P_real.values
         elif hasattr(P_real, "to_numpy"): P_real = P_real.to_numpy()
-        
+
         # Z-Metrics
-        z_ensemble = P_real[:, 2:] 
+        z_ensemble = P_real[:, 2:]
         self.sfi = np.median(z_ensemble, axis=0)
         self.igp = np.median(np.abs(z_ensemble), axis=0)
         self.pprob = np.sign(self.sfi) * erf(np.abs(self.sfi) / np.sqrt(2))
-        
+
         # --- FIX: Use self.param_names instead of self.smoother.param_df ---
         param_names = self.param_names
         # -------------------------------------------------------------------
-        
+
         BATCH_SIZE = 10
         lazy_results = []
         for i in range(0, self.nreals, BATCH_SIZE):
@@ -689,10 +695,10 @@ class IES:
                 batch_vecs, param_names, self.physics_payload, Sounding.dobs, Sounding.uncertainties
             )
             lazy_results.append(task)
-            
+
         nested_results = dask.compute(*lazy_results)
         flat_results = [item for sublist in nested_results for item in sublist]
-        
+
         self.calreals = []; self.preds = []; self.chivals = []; self.fits = []; self.calib_factors = []; self.DOIs = []
         class PredWrapper:
             def __init__(self, d): self.dclean = d
@@ -704,14 +710,14 @@ class IES:
             self.chivals.append(chi2)
             self.fits.append(rele)
             self.calib_factors.append(c_len)
-            self.DOIs.append([0.0]*len(Sounding.Depths)) 
+            self.DOIs.append([0.0]*len(Sounding.Depths))
 
         log_reals = np.log10(np.array(self.calreals) + 1e-12)
         self.p50 = 10**np.quantile(log_reals, 0.5, axis=0)
         self.p5 = 10**np.quantile(log_reals, 0.05, axis=0)
         self.p95 = 10**np.quantile(log_reals, 0.95, axis=0)
-        
-        p_peak = np.zeros(len(Sounding.Depths)); p_trough = np.zeros(len(Sounding.Depths))  
+
+        p_peak = np.zeros(len(Sounding.Depths)); p_trough = np.zeros(len(Sounding.Depths))
         p_rise = np.zeros(len(Sounding.Depths)); p_fall = np.zeros(len(Sounding.Depths))
 
         for sigma in self.calreals:
@@ -724,9 +730,9 @@ class IES:
             p_rise += grad > 0.01
             p_fall += grad < -0.01
 
-        self.tprob = p_trough / self.nreals    
-        self.ri_prob = p_rise / self.nreals    
-        self.fa_prob = p_fall / self.nreals    
+        self.tprob = p_trough / self.nreals
+        self.ri_prob = p_rise / self.nreals
+        self.fa_prob = p_fall / self.nreals
         self.cdf = np.zeros(len(Sounding.Depths))
         self.DOI_mean = 0; self.DOI_std = 0
         print("Post-processing complete.")
@@ -784,7 +790,7 @@ class Sounding:
         self.dobs = -self.tx_area * np.r_[lm_d, hm_d]
         self.times = np.r_[Survey.lm_times, Survey.hm_times]
 
-        noise_floor = 1e-15 
+        noise_floor = 1e-15
         if (self.use_relerr):
             self.uncertainties = np.sqrt((self.dobs * self.runc_offset) ** 2 + noise_floor**2)
         else:
@@ -802,7 +808,7 @@ class Sounding:
     def get_HRML_reals(self, nreals, client=None):
         self.RML = HRML(nreals=nreals)
         self.RML.run_local(self, client=client)
-        
+
     def get_RML_reals(self, nreals, Lrange=20, ival=0.05, lower=0.00001, upper=10, tpw=1, memlim="4GB"):
         """Prepares the RML stochastic ensemble (Legacy)."""
         self.RML = RML(Lrange=Lrange, ival=ival, lower=lower, upper=upper, tpw=tpw, memlim=memlim)
@@ -846,7 +852,7 @@ class Calibration:
             rng = np.random.RandomState(seed=seed)
             L_mat = get_cholesky_decomposition(Sounding.mesh, stochastic_params['corr_factor'])
             geo_map = GeostatisticalMapping(Sounding.mesh, L_mat)
-            phys_map = maps.ExpMap(nP=Sounding.mesh.nC); model_mapping = phys_map * geo_map 
+            phys_map = maps.ExpMap(nP=Sounding.mesh.nC); model_mapping = phys_map * geo_map
             z_init = rng.randn(Sounding.mesh.nC) * stochastic_params['std_scale']
             m_latent_init = np.r_[stochastic_params['mean_prior'], z_init]
             self.simulation = tdem.Simulation1DLayered(survey=Sounding.srv, thicknesses=Sounding.inv_thickness, sigmaMap=model_mapping)
@@ -868,7 +874,9 @@ class Calibration:
             self.rele = np.mean(np.abs((Sounding.dobs - pred.dclean) / Sounding.dobs))
             self.DOI = get_DOI(isounding=Sounding, Cali=self)
             return {"values": self.values, "rele": self.rele, "pred": pred, "DOI": self.DOI, "CHI2": self.CHi2, "corr_factor": stochastic_params['corr_factor'], "success": True}
-        except Exception: return {"success": False}
+        except Exception as e:
+            logger.error("Error in calibration: %s", e, exc_info=True)
+            return {"success": False}
 
 # -----------------------------------------------------------------------------
 # 7. OUTPUT UTILS
@@ -879,7 +887,7 @@ def adjust_dtype(var): return int(var) if isinstance(var, np.integer) else var
 def proc_output(out, fd_output_sounding):
     time, isounding = out
     os.makedirs(fd_output_sounding, exist_ok=True)
-    
+
     # Robust retrieval for both IES and HRML metrics
     df_rml = pd.DataFrame({
         "depth": isounding.inv_thickness.cumsum(),
@@ -910,7 +918,7 @@ def proc_output(out, fd_output_sounding):
         "easting": adjust_dtype(isounding.UTMX),
         "northing": adjust_dtype(isounding.UTMY),
         "mean_relerr": adjust_dtype(isounding.RML.fits),
-        "calibration_factors": [adjust_dtype(x) for x in isounding.RML.calib_factors] 
+        "calibration_factors": [adjust_dtype(x) for x in isounding.RML.calib_factors]
     }
 
     df_rml.to_parquet(os.path.join(fd_output_sounding, "rml.gz.parquet"), index=False)
