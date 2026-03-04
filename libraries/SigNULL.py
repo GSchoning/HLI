@@ -566,15 +566,17 @@ def get_cutoff(isounding, S, V, kmin=0.0001, kmax=10):
     S2k = ((kmax - kmin) / 4) ** 2
     S1inv = np.linalg.inv(np.diag(S))
     S1inv_2 = S1inv**2
-    Yemp = np.zeros(np.shape(V)[0])
+    V_shape_0 = V.shape[0]
+    V_shape_1 = V.shape[1]
+    Yemp = np.zeros(V_shape_0)
     kt = []
-    for s in range(0, np.shape(V)[1]):
+    for s in range(0, V_shape_1):
         Y = Yemp.copy(); Y[s] = 1 
         Perrc = []
         for w in range(0, len(S)):
             S2E = (isounding.uncertainties**2)[w] 
             YtV_2 = []
-            for i2 in range(w + 1, np.shape(V)[1]):
+            for i2 in range(w + 1, V_shape_1):
                 Vi = V[:, i2]; YtV_2.append((Y.T @ Vi) ** 2)
             P1i = np.sum(YtV_2) * S2k
             SiyTvi = []
