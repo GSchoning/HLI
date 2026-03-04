@@ -564,24 +564,24 @@ def post_process_batch_worker(p_vecs, param_names, physics_payload, dobs, unc):
 def get_cutoff(isounding, S, V, kmin=0.0001, kmax=10):
     kmin, kmax = 0.00001, 10
     S2k = ((kmax - kmin) / 4) ** 2
-    S1inv = np.linalg.inv(np.diag(S))
-    S1inv_2 = S1inv**2
-    Yemp = np.zeros(np.shape(V)[0])
+    S1inv_2_diag = 1.0 / (S**2)
+    V_sq = V**2
     kt = []
     for s in range(0, np.shape(V)[1]):
-        Y = Yemp.copy(); Y[s] = 1 
         Perrc = []
         for w in range(0, len(S)):
             S2E = (isounding.uncertainties**2)[w] 
-            YtV_2 = []
-            for i2 in range(w + 1, np.shape(V)[1]):
-                Vi = V[:, i2]; YtV_2.append((Y.T @ Vi) ** 2)
-            P1i = np.sum(YtV_2) * S2k
-            SiyTvi = []
-            for i3 in range(1, w):
-                Vi = V[:, i3]; S2inv2YTVi = S1inv_2[i3 - 1, i3 - 1] * (Y.T @ Vi) ** 2
-                SiyTvi.append(S2inv2YTVi)
-            P2i = np.sum(SiyTvi) * S2E
+
+            if w + 1 < np.shape(V)[1]:
+                P1i = np.sum(V_sq[s, w + 1:]) * S2k
+            else:
+                P1i = 0.0
+
+            if w >= 2:
+                P2i = np.sum(S1inv_2_diag[0:w - 1] * V_sq[s, 1:w]) * S2E
+            else:
+                P2i = 0.0
+
             Perrc.append(P1i + P2i)
             k = np.argmin(Perrc)
             kt.append(k)
