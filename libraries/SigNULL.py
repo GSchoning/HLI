@@ -111,7 +111,14 @@ class GeostatisticalMapping(maps.IdentityMap):
         return J
 
 def get_cholesky_decomposition(mesh, correlation_factor):
-    nC = mesh.nC
+    import scipy.sparse as sp
+    n_cells = mesh.nC if hasattr(mesh, 'nC') else mesh.n_cells
+
+    # Handle case with single cell
+    if n_cells == 1:
+        return sp.eye(1).tocsr()
+
+    nC = n_cells
     idx = np.arange(nC)
     index_dist = np.abs(idx[:, None] - idx[None, :])
     correlation_factor = max(0.1, float(correlation_factor))
