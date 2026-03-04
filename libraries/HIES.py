@@ -818,6 +818,10 @@ class Calibration:
 def adjust_dtype(var):
     if isinstance(var, np.integer):
         return int(var)
+    elif isinstance(var, np.floating):
+        return float(var)
+    elif isinstance(var, np.ndarray):
+        return var.tolist()
     else:
         return var
 
