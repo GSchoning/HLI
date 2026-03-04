@@ -516,8 +516,7 @@ def run_ies_forward(p_input, physics_payload):
         corr_len = p_input.get('corr_len', 2.5) 
         log_mean = p_input.get('log_mean', -4.6)
         n_layers = physics_payload['n_layers']
-        z_vec = np.zeros(n_layers)
-        for i in range(n_layers): z_vec[i] = p_input.get(f"z_{i:02d}", 0.0)
+        z_vec = np.array([p_input.get(f"z_{i:02d}", 0.0) for i in range(n_layers)])
     else:
         p_vec = np.array(p_input)
         corr_len, log_mean, z_vec = p_vec[0], p_vec[1], p_vec[2:]
