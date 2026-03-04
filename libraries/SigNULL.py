@@ -588,11 +588,16 @@ def get_cutoff(isounding, S, V, kmin=0.0001, kmax=10):
     return int(np.mean(kt))
 
 def cdf_for_value(data, x):
-    data_array = np.array(data)
-    count = np.sum(data_array <= x)
-    total_count = len(data_array)
-    if total_count == 0: return 0.0
-    return count / total_count
+    if len(data) == 0:
+        return 0.0
+
+    # Count how many items in data are <= x
+    count_less_equal = sum(1 for item in data if item <= x)
+
+    # Divide by total number of items to get CDF probability
+    cdf_prob = count_less_equal / len(data)
+
+    return float(cdf_prob)
 
 def get_DOI(isounding, Cali, depths=False):
     try:
