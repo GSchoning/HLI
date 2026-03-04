@@ -19,7 +19,7 @@ from simpeg import (
 )
 from simpeg.data import Data
 from simpeg.data_misfit import L2DataMisfit
-import functools 
+import functools
 
 # --- IMPORT ENSEMBLE SMOOTHER ---
 try:
@@ -132,15 +132,15 @@ def run_ies_forward(p_input, physics_payload):
     # 1. Parse Input (Handle both Dict and Array)
     if isinstance(p_input, dict):
         # Input is Dictionary (Safe, named)
-        corr_len = p_input.get('corr_len', 2.5) 
+        corr_len = p_input.get('corr_len', 2.5)
         log_mean = p_input.get('log_mean', -4.6)
-        
+
         # Extract z_vec from keys like 'z_00', 'z_01'
         n_layers = physics_payload['n_layers']
         z_vec = np.zeros(n_layers)
         for i in range(n_layers):
             z_vec[i] = p_input.get(f"z_{i:02d}", 0.0)
-            
+
     else:
         # Input is Numpy Array (Fast, unnamed)
         # We assume strict order: [0]=corr_len, [1]=log_mean, [2:]=z_vec
@@ -153,19 +153,19 @@ def run_ies_forward(p_input, physics_payload):
     survey = physics_payload['survey']
     thicknesses = physics_payload['thicknesses']
     n_layers = physics_payload['n_layers']
-    
+
     # Rebuild Mesh locally
     mesh = TensorMesh([(np.r_[thicknesses, thicknesses[-1]])], "0")
 
     # 3. Hierarchical Mapping
     L = get_cholesky_decomposition(mesh, corr_len)
     log_cond = log_mean + (L @ z_vec)
-    
+
     # 4. Run Simulation
     simulation = tdem.Simulation1DLayered(
-        survey=survey, 
-        thicknesses=thicknesses, 
-        sigmaMap=maps.ExpMap(nP=n_layers) 
+        survey=survey,
+        thicknesses=thicknesses,
+        sigmaMap=maps.ExpMap(nP=n_layers)
     )
 
     try:
@@ -190,14 +190,14 @@ def post_process_batch_worker(p_vecs, param_names, physics_payload, dobs, unc):
     thicknesses = physics_payload['thicknesses']
     n_layers = physics_payload['n_layers']
     mesh = TensorMesh([(np.r_[thicknesses, thicknesses[-1]])], "0")
-    
+
     # Pre-allocate simulation object
     simulation = tdem.Simulation1DLayered(
-        survey=survey, thicknesses=thicknesses, sigmaMap=maps.ExpMap(nP=n_layers) 
+        survey=survey, thicknesses=thicknesses, sigmaMap=maps.ExpMap(nP=n_layers)
     )
-    
+
     results = []
-    
+
     # 2. Loop through the batch
     for p_vec in p_vecs:
         # We know p_vec is an array from the batched slice
@@ -210,12 +210,12 @@ def post_process_batch_worker(p_vecs, param_names, physics_payload, dobs, unc):
         L = get_cholesky_decomposition(mesh, corr_len)
         log_cond = log_mean + (L @ z_vec)
         sigma = np.exp(log_cond)
-        
+
         # Forward Physics
         try:
             dpred_obj = simulation.make_synthetic_data(log_cond, add_noise=False)
             dclean = dpred_obj.dobs
-            
+
             residuals = (dobs - dclean) / unc
             chi2 = np.sum(residuals**2) / len(dobs)
             rele = np.mean(np.abs((dobs - dclean) / dobs))
@@ -223,9 +223,9 @@ def post_process_batch_worker(p_vecs, param_names, physics_payload, dobs, unc):
             dclean = np.zeros_like(dobs)
             chi2 = 99999.0
             rele = 1.0
-            
+
         results.append((sigma, dclean, chi2, rele, corr_len))
-        
+
     return results
 
 
@@ -241,10 +241,10 @@ def get_cutoff(isounding, S, V, kmin=0.0001, kmax=10):
     kt = []
     for s in range(0, np.shape(V)[1]):
         Y = Yemp.copy()
-        Y[s] = 1 
+        Y[s] = 1
         Perrc = []
         for w in range(0, len(S)):
-            S2E = (isounding.uncertainties**2)[w] 
+            S2E = (isounding.uncertainties**2)[w]
             YtV_2 = []
             for i2 in range(w + 1, np.shape(V)[1]):
                 Vi = V[:, i2]
@@ -274,17 +274,17 @@ def get_DOI(isounding, Cali, depths=False):
         if hasattr(Cali, 'values'):
             model_vals = Cali.values
         else:
-            model_vals = Cali 
-            
+            model_vals = Cali
+
         temp_map = maps.ExpMap(nP=isounding.mesh.nC)
         temp_sim = tdem.Simulation1DLayered(
-            survey=isounding.srv, 
-            thicknesses=isounding.inv_thickness, 
+            survey=isounding.srv,
+            thicknesses=isounding.inv_thickness,
             sigmaMap=temp_map
         )
-        
+
         JW = temp_sim.getJ(m=np.log(model_vals))
-        
+
         if not np.all(np.isfinite(JW)): raise np.linalg.LinAlgError("Jacobian issues")
 
         U, S, VT = scipy.linalg.svd(JW, lapack_driver='gesvd')
@@ -308,7 +308,7 @@ def get_DOI(isounding, Cali, depths=False):
             try:
                 valid_indices = np.where(np.array(rat) > 1)[0]
                 if len(valid_indices) > 0:
-                    idx = valid_indices[-1] 
+                    idx = valid_indices[-1]
                     DOIi.append(isounding.Depths[idx])
                 else:
                     DOIi.append(isounding.Depths[0])
@@ -335,10 +335,10 @@ class IES:
         self.max_iter = 5
         self.initial_lambda = 1.0
         self.use_regularization = False
-    
+
     def run_local(self, Sounding, cluster=None, client=None):
         self.ncores = int(os.cpu_count()) - 1
-        
+
         # 1. Setup Dataframes
         obs_names = [f"d_{i:02d}" for i in range(len(Sounding.dobs))]
         self.obs_df = pd.DataFrame({
@@ -350,22 +350,22 @@ class IES:
         # A. Correlation Length (Hierarchical Parameter)
         # Using Safe Bounds (1.0 to 10.0)
         param_list.append({
-            "name": "corr_len", "prior_mean": 10, "prior_std": 2.0, 
-            "pmin": 1.0, "pmax": 30.0 
+            "name": "corr_len", "prior_mean": 10, "prior_std": 2.0,
+            "pmin": 1.0, "pmax": 30.0
         })
         # B. Mean Conductivity
         param_list.append({
-            "name": "log_mean", "prior_mean": np.log(0.01), "prior_std": 2.0, 
+            "name": "log_mean", "prior_mean": np.log(0.01), "prior_std": 2.0,
             "pmin": np.log(1e-4), "pmax": np.log(1.0)
         })
         # C. Latent Variables (Structure)
         # Using Safe Bounds (-3.5 to 3.5)
         for i in range(Sounding.mesh.nC):
             param_list.append({
-                "name": f"z_{i:02d}", "prior_mean": 0.0, "prior_std": 1.0, 
-                "pmin": -3.5, "pmax": 3.5 
+                "name": f"z_{i:02d}", "prior_mean": 0.0, "prior_std": 1.0,
+                "pmin": -3.5, "pmax": 3.5
             })
-            
+
         self.param_df = pd.DataFrame(param_list).set_index("name")
         self.bounds_df = self.param_df[['pmin', 'pmax']]
 
@@ -375,17 +375,17 @@ class IES:
             self.closeflag = True
             cluster = LocalCluster(n_workers=self.ncores)
             client = Client(cluster)
-        
+
         # 3. Create Payload (Critical for stability)
         self.physics_payload = {
-            'survey': Sounding.srv,             
-            'thicknesses': Sounding.inv_thickness, 
-            'n_layers': Sounding.mesh.nC       
+            'survey': Sounding.srv,
+            'thicknesses': Sounding.inv_thickness,
+            'n_layers': Sounding.mesh.nC
         }
-        
+
         # 4. Initialize & Run Smoother
         model_func = functools.partial(run_ies_forward, physics_payload=self.physics_payload)
-        
+
         self.smoother = LMEnsembleSmoother(
             model_func=model_func,
             param_df=self.param_df,
@@ -397,9 +397,9 @@ class IES:
             reg_weight=0.0,
             transform_parameters=True
         )
-        
+
         self.smoother.initialize_priors(phys_bounds=self.bounds_df)
-        
+
         final_params = self.smoother.solve(
             max_iterations=self.max_iter,
             initial_lambda=self.initial_lambda,
@@ -414,77 +414,78 @@ class IES:
         if self.closeflag:
             client.close()
             cluster.close()
-            
+
     def post_process(self, Sounding, client=None):
         """
         Batched parallel post-processing to calculate physical properties and statistics.
         """
         print("Starting Batched Parallel Post-Processing...")
-        
+
         # 1. Get Final Parameters
         P_real = self.smoother.inverse_transform(self.smoother.P)
-        
+
         # --- CRITICAL FIX: Ensure it is a Numpy Array ---
         if hasattr(P_real, "values"):
             P_real = P_real.values
         elif hasattr(P_real, "to_numpy"):
             P_real = P_real.to_numpy()
-        
+
         param_names = self.param_df.index.tolist()
-        
+
         # 2. Define Batch Size
         BATCH_SIZE = 10
         lazy_results = []
         total_reals = self.nreals
-        
+
         # 3. Create Batches
         for i in range(0, total_reals, BATCH_SIZE):
             batch_vecs = P_real[i : i + BATCH_SIZE]
-            
+
             task = dask.delayed(post_process_batch_worker)(
-                batch_vecs, 
-                param_names, 
-                self.physics_payload, 
-                Sounding.dobs, 
+                batch_vecs,
+                param_names,
+                self.physics_payload,
+                Sounding.dobs,
                 Sounding.uncertainties
             )
             lazy_results.append(task)
-            
+
         # 4. Compute (Returns list of lists)
         nested_results = dask.compute(*lazy_results)
-        
+
         # 5. Flatten Results
         flat_results = [item for sublist in nested_results for item in sublist]
-        
-        # 6. Unpack
-        self.calreals = []
-        self.preds = [] 
-        self.chivals = []
-        self.fits = []
-        self.calib_factors = []
-        self.DOIs = []
 
+        # 6. Unpack
         class PredWrapper:
             def __init__(self, d): self.dclean = d
 
-        for res in flat_results:
-            sigma, dclean, chi2, rele, c_len = res
-            self.calreals.append(sigma)
-            self.preds.append(PredWrapper(dclean))
-            self.chivals.append(chi2)
-            self.fits.append(rele)
-            self.calib_factors.append(c_len)
-            self.DOIs.append([0.0]*len(Sounding.Depths)) 
+        if flat_results:
+            sigmas, dcleans, chi2s, reles, c_lens = zip(*flat_results)
+            self.calreals = list(sigmas)
+            self.preds = [PredWrapper(d) for d in dcleans]
+            self.chivals = list(chi2s)
+            self.fits = list(reles)
+            self.calib_factors = list(c_lens)
+            doi_template = [0.0] * len(Sounding.Depths)
+            self.DOIs = [doi_template.copy() for _ in range(len(flat_results))]
+        else:
+            self.calreals = []
+            self.preds = []
+            self.chivals = []
+            self.fits = []
+            self.calib_factors = []
+            self.DOIs = []
 
         # 7. Compute Ensemble Statistics
         log_reals = np.log10(np.array(self.calreals) + 1e-12)
         self.p50 = 10**np.quantile(log_reals, 0.5, axis=0)
         self.p5 = 10**np.quantile(log_reals, 0.05, axis=0)
         self.p95 = 10**np.quantile(log_reals, 0.95, axis=0)
-        
+
         # 8. Feature Probability Calculation
         p_peak = np.zeros(len(Sounding.Depths))
-        p_trough = np.zeros(len(Sounding.Depths))  
+        p_trough = np.zeros(len(Sounding.Depths))
         p_rise = np.zeros(len(Sounding.Depths))
         p_fall = np.zeros(len(Sounding.Depths))
 
@@ -499,14 +500,14 @@ class IES:
             p_fall += grad < -0.01
 
         self.pprob = p_peak / self.nreals
-        self.tprob = p_trough / self.nreals    
-        self.ri_prob = p_rise / self.nreals    
-        self.fa_prob = p_fall / self.nreals    
+        self.tprob = p_trough / self.nreals
+        self.ri_prob = p_rise / self.nreals
+        self.fa_prob = p_fall / self.nreals
         self.igp = (p_rise - p_fall) / self.nreals
-        
+
         self.cdf = np.zeros(len(Sounding.Depths))
         self.DOI_mean = 0; self.DOI_std = 0
-        
+
         print("Post-processing complete.")
 
 
@@ -586,7 +587,7 @@ class Sounding:
         self.dobs = -self.tx_area * np.r_[self.station_lm_data, self.station_hm_data]
         self.times = np.r_[Survey.lm_times, Survey.hm_times]
 
-        noise_floor = 1e-15 
+        noise_floor = 1e-15
 
         if (self.use_relerr):
             self.relerr = np.ones_like(self.dobs) * self.runc_offset
@@ -604,7 +605,7 @@ class Sounding:
         self.mesh = TensorMesh(
             [(np.r_[self.inv_thickness, self.inv_thickness[-1]])], "0"
         )
-        self.model_mapping = maps.ExpMap(nP=self.mesh.nC) 
+        self.model_mapping = maps.ExpMap(nP=self.mesh.nC)
         self.simulation = tdem.Simulation1DLayered(
             survey=self.srv, thicknesses=self.inv_thickness, sigmaMap=self.model_mapping
         )
@@ -619,10 +620,10 @@ class Sounding:
         self.RML.setup_hierarchical_priors(self, nreals)
         self.RML.get_perturbed_data(self, nreals)
         self.RML.prep_parruns(self, nreals)
-        
+
     def get_IES_reals(self, nreals, client=None):
         """Prepares and runs the IES stochastic ensemble."""
-        self.RML = IES(nreals=nreals) 
+        self.RML = IES(nreals=nreals)
         self.RML.run_local(self, client=client)
 
 
@@ -632,12 +633,12 @@ class Sounding:
 
 class RML:
     def __init__(self, Lrange, ival, lower, upper, tpw, memlim):
-        self.Lrange = Lrange  
-        self.ival = ival  
-        self.lower = lower  
-        self.upper = upper 
-        self.tpw = tpw  
-        self.memlim = memlim 
+        self.Lrange = Lrange
+        self.ival = ival
+        self.lower = lower
+        self.upper = upper
+        self.tpw = tpw
+        self.memlim = memlim
 
     def setup_hierarchical_priors(self, Sounding, nreals):
         self.Depths = Sounding.Depths
@@ -713,7 +714,7 @@ class RML:
         self.p50 = 10**np.quantile(log_reals, 0.5, axis=0)
         self.p5 = 10**np.quantile(log_reals, 0.05, axis=0)
         self.p95 = 10**np.quantile(log_reals, 0.95, axis=0)
-        
+
         # Feature Prob calc (Same as IES class)
         # ... (Omitted for brevity, redundant logic)
 
@@ -738,7 +739,7 @@ class RML:
             m_latent_init = np.r_[mean_prior, z_init]
             m_physical = model_mapping * m_latent_init
             self.prior_reals.append(m_physical)
-        
+
         self.prior_reals = np.array(self.prior_reals)
         return self.prior_reals
 
@@ -748,9 +749,9 @@ class RML:
 # -----------------------------------------------------------------------------
 class Calibration:
     use_weights = True
-    maxIter = 30 
+    maxIter = 30
     tolCG = 1e-5
-    beta0_ratio = 1e-2 
+    beta0_ratio = 1e-2
     coolEpsFact = 2
     verbose = False
     def __init__(self): pass
@@ -766,7 +767,7 @@ class Calibration:
                 L_mat = get_cholesky_decomposition(Sounding.mesh, corr_factor)
                 geo_map = GeostatisticalMapping(Sounding.mesh, L_mat)
                 phys_map = maps.ExpMap(nP=Sounding.mesh.nC)
-                model_mapping = phys_map * geo_map 
+                model_mapping = phys_map * geo_map
                 z_init = rng.randn(Sounding.mesh.nC) * std_scale
                 m_latent_init = np.r_[mean_prior, z_init]
                 self.simulation = tdem.Simulation1DLayered(
@@ -779,7 +780,7 @@ class Calibration:
                     reg_mesh, mapping=maps.IdentityMap(nP=Sounding.mesh.nC + 1)
                 )
                 reg_weights = np.ones(Sounding.mesh.nC + 1)
-                reg_weights[0] = 0.1 
+                reg_weights[0] = 0.1
                 reg_weights[1:] = 1.0
                 self.reg.set_weights(prior_weights=np.sqrt(reg_weights))
                 self.reg.reference_model = m_latent_init
@@ -806,7 +807,7 @@ class Calibration:
             return {
                 "values": self.values, "rele": self.rele, "pred": self.pred,
                 "DOI": self.DOI, "CHI2": self.CHi2, "corr_factor": self.corr_factor,
-                "success": True, 
+                "success": True,
             }
         except Exception:
             return {"success": False}
@@ -867,7 +868,7 @@ def proc_output(out, fd_output_sounding):
         "mean_relerr": adjust_dtype(isounding.RML.fits),
         "DOI_mean": adjust_dtype(isounding.RML.DOI_mean),
         "DOI_std": adjust_dtype(isounding.RML.DOI_std),
-        "calibration_factors": [adjust_dtype(x) for x in isounding.RML.calib_factors] 
+        "calibration_factors": [adjust_dtype(x) for x in isounding.RML.calib_factors]
     }
 
     if not os.path.exists(fd_output_sounding):
