@@ -22,7 +22,7 @@ def parse_gex_file(fname):
                 info = general_info
             elif "[Channel" in line:
                 current_section = "Channel"
-                id_search = re.search("\d+", line).span()
+                id_search = re.search(r"\d+", line).span()
                 channel_id = int(line[id_search[0] : id_search[1]])
                 if channel_id not in channel_ids:
                     channel_ids.append(channel_id)
@@ -44,13 +44,13 @@ def parse_gex_file(fname):
                     # The Tx points will always be listed in order
                     loop_points.append(data)
                 elif (
-                    match := re.search("Waveform\w+Point\d+", description)
+                    match := re.search(r"Waveform\w+Point\d+", description)
                 ) is not None:
                     if "LM" in description:
                         lm_wave.append(data)
                     if "HM" in description:
                         hm_wave.append(data)
-                elif (match := re.search("GateTime\d+", description)) is not None:
+                elif (match := re.search(r"GateTime\d+", description)) is not None:
                     gate_times.append(data)
                 else:
                     try:
