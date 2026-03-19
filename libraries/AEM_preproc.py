@@ -180,7 +180,7 @@ class Data:
         if self.sounding_averaging:
             def average_data_file(data_file, sounding_averaging):
                 line_list = data_file['LINE_NO'].unique().tolist()
-                data_file_averaged = pd.DataFrame()
+                data_file_averaged_list = []
                 
                 for line in line_list:
                     filt1 = data_file['LINE_NO'] == line
@@ -195,7 +195,13 @@ class Data:
                                 .agg(agg_dict) 
                                 .reset_index(drop=True))
                     
-                    data_file_averaged = pd.concat([data_file_averaged, data_file_line_averaged], axis=0, ignore_index=True)
+                    data_file_averaged_list.append(data_file_line_averaged)
+
+                if data_file_averaged_list:
+                    data_file_averaged = pd.concat(data_file_averaged_list, axis=0, ignore_index=True)
+                else:
+                    data_file_averaged = pd.DataFrame()
+
                 return data_file_averaged
 
             df = average_data_file(data_file=df, sounding_averaging=self.sounding_averaging)
@@ -320,7 +326,7 @@ class Data:
 
                 line_list = data_file['LINE_NO'].unique().tolist()
                 
-                data_file_averaged = pd.DataFrame()
+                data_file_averaged_list = []
                 
                 # process the lines one by one
                 for line in line_list:
@@ -336,9 +342,12 @@ class Data:
                                 .reset_index(drop=True) )
 
                     # append partial results
-                    data_file_averaged = pd.concat([data_file_averaged, data_file_line_averaged], 
-                                                axis=0, 
-                                                ignore_index=True)
+                    data_file_averaged_list.append(data_file_line_averaged)
+
+                if data_file_averaged_list:
+                    data_file_averaged = pd.concat(data_file_averaged_list, axis=0, ignore_index=True)
+                else:
+                    data_file_averaged = pd.DataFrame()
                 
                 return data_file_averaged
 
