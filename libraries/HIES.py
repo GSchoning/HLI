@@ -235,7 +235,7 @@ def post_process_batch_worker(p_vecs, param_names, physics_payload, dobs, unc):
 def get_cutoff(isounding, S, V, kmin=0.0001, kmax=10):
     kmin, kmax = 0.00001, 10
     S2k = ((kmax - kmin) / 4) ** 2
-    S1inv = np.linalg.inv(np.diag(S))
+    S1inv = np.diag(1.0 / S)
     S1inv_2 = S1inv**2
 
     num_cols = np.shape(V)[1]
@@ -295,7 +295,7 @@ def get_DOI(isounding, Cali, depths=False):
         k = get_cutoff(isounding, S, V, kmin=0.0001, kmax=3)
 
         V1 = V[:, :k]; U1 = U[:, :k]; S1 = np.diag(S[:k])
-        S1inv = np.linalg.inv(S1); R = V1 @ V1.T
+        S1inv = np.diag(1.0 / S[:k]); R = V1 @ V1.T
         DOIi = []
         for i in range(0, 500):
             E = np.random.normal(0, isounding.uncertainties, size=len(isounding.dobs))
