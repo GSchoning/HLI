@@ -235,7 +235,7 @@ def post_process_batch_worker(p_vecs, param_names, physics_payload, dobs, unc):
 def get_cutoff(isounding, S, V, kmin=0.0001, kmax=10):
     kmin, kmax = 0.00001, 10
     S2k = ((kmax - kmin) / 4) ** 2
-    S1inv = np.linalg.inv(np.diag(S))
+    S1inv = np.diag(1.0 / S)
     S1inv_2 = S1inv**2
 
     num_cols = np.shape(V)[1]
