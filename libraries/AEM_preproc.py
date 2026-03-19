@@ -180,22 +180,29 @@ class Data:
         if self.sounding_averaging:
             def average_data_file(data_file, sounding_averaging):
                 line_list = data_file['LINE_NO'].unique().tolist()
-                data_file_averaged = pd.DataFrame()
+
+                # Ensure DATE and TIME are not deleted by averaging
+                agg_dict = {col: 'mean' if pd.api.types.is_numeric_dtype(data_file[col]) else 'first'
+                            for col in data_file.columns}
+
+                averaged_lines = []
                 
                 for line in line_list:
                     filt1 = data_file['LINE_NO'] == line
                     data_file_line = data_file[filt1].reset_index(drop=True)
-                    
-                    # Ensure DATE and TIME are not deleted by averaging
-                    agg_dict = {col: 'mean' if pd.api.types.is_numeric_dtype(data_file_line[col]) else 'first' 
-                                for col in data_file_line.columns}
                     
                     data_file_line_averaged = (data_file_line
                                 .groupby(np.arange(len(data_file_line)) // sounding_averaging)
                                 .agg(agg_dict) 
                                 .reset_index(drop=True))
                     
-                    data_file_averaged = pd.concat([data_file_averaged, data_file_line_averaged], axis=0, ignore_index=True)
+                    averaged_lines.append(data_file_line_averaged)
+
+                if averaged_lines:
+                    data_file_averaged = pd.concat(averaged_lines, axis=0, ignore_index=True)
+                else:
+                    data_file_averaged = pd.DataFrame(columns=data_file.columns)
+
                 return data_file_averaged
 
             df = average_data_file(data_file=df, sounding_averaging=self.sounding_averaging)
@@ -320,26 +327,36 @@ class Data:
 
                 line_list = data_file['LINE_NO'].unique().tolist()
                 
-                data_file_averaged = pd.DataFrame()
+                # Ensure DATE and TIME are not deleted by averaging
+                # (proc_dat might not have same columns, but using same logic for consistency)
+                # Note: proc_dat's original code used .mean(), which breaks for non-numeric columns like DATE/TIME.
+                # Let's add the same robust agg_dict logic here to fix potential bugs and improve performance.
+                agg_dict = {col: 'mean' if pd.api.types.is_numeric_dtype(data_file[col]) else 'first'
+                            for col in data_file.columns}
+
+                averaged_lines = []
                 
                 # process the lines one by one
                 for line in line_list:
                     
                     # filter dat only for this line
                     filt1 = data_file['LINE_NO'] == line
-                    data_file_line = data_file[filt1]
+                    data_file_line = data_file[filt1].reset_index(drop=True)
 
                     # average the data
                     data_file_line_averaged = (data_file_line
-                                .groupby(data_file_line.index // sounding_averaging)
-                                .mean() 
+                                .groupby(np.arange(len(data_file_line)) // sounding_averaging)
+                                .agg(agg_dict)
                                 .reset_index(drop=True) )
 
                     # append partial results
-                    data_file_averaged = pd.concat([data_file_averaged, data_file_line_averaged], 
-                                                axis=0, 
-                                                ignore_index=True)
+                    averaged_lines.append(data_file_line_averaged)
                 
+                if averaged_lines:
+                    data_file_averaged = pd.concat(averaged_lines, axis=0, ignore_index=True)
+                else:
+                    data_file_averaged = pd.DataFrame(columns=data_file.columns)
+
                 return data_file_averaged
 
             data_file = average_data_file(data_file=data_file, sounding_averaging=self.sounding_averaging)
