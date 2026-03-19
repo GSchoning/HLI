@@ -1,4 +1,5 @@
 import sys
+import warnings
 import numpy as np
 import logging
 import pandas as pd
@@ -222,7 +223,9 @@ class LMEnsembleSmoother:
     def _check_failures(self, S, safe_min=-1e9, safe_max=1e9):
         nan_mask = np.isnan(S).any(axis=1)
         obs_S = S[:, :self.nobs_real]
-        large_mask = ((np.nanmin(obs_S, axis=1) < safe_min) | (np.nanmax(obs_S, axis=1) > safe_max))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            large_mask = ((np.nanmin(obs_S, axis=1) < safe_min) | (np.nanmax(obs_S, axis=1) > safe_max))
         bad_mask = nan_mask | large_mask
         fail_count = np.sum(bad_mask)
 
